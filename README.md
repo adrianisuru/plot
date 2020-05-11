@@ -4,7 +4,7 @@ The `wasm-pack` binary can be installed with
 cargo install wasm-pack
 ```
 
-A static http server is needed to serve the files. 'http' can be installed with
+A static http server is needed to serve the files. `http` can be installed with
 ```
 cargo install https
 ```
