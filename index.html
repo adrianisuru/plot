@@ -3,7 +3,10 @@
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
   </head>
   <body style="overflow: hidden; margin: 0; padding: 0;">
-    <canvas id="canvas" width="900" height="900"/>
-
+    <script type="module">
+      import init from './pkg/webgl.js';
+      init();
+    </script>
+    <canvas id="canvas" width="900" height="900"></canvas>
   </body>
 </html>
