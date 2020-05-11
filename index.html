@@ -2,15 +2,8 @@
   <head>
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
   </head>
-  <body style="overflow: hidden; margin: 0; padding: 0;" onresize="resizeCanvas()">
-    <canvas id="canvas"/>
+  <body style="overflow: hidden; margin: 0; padding: 0;">
+    <canvas id="canvas" width="900" height="900"/>
 
-    <script>
-      function resizeCanvas() {
-          var ctx = document.getElementById('canvas');
-          ctx.width = window.innerWidth;
-          ctx.height = window.innerHeight;
-      }
-    </script>
   </body>
 </html>
