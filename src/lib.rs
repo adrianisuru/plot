@@ -113,7 +113,7 @@ pub fn start() -> Result<(), JsValue> {
     //
     //    draw(&gl, &program, &vertices, &indices, &pm, &wm);
 
-    let plot = plot::Plot3D::new(gl, 10)?;
+    let plot = plot::Plot3D::new(gl, 50, true)?;
 
     let app = App::new(canvas, plot)?;
 

@@ -9,6 +9,7 @@ pub struct Plot3D {
     program: WebGlProgram,
     vertices: Vec<f32>,
     indices: Vec<u16>,
+    mesh: bool,
     fov_y: f32,
     front: f32,
     back: f32,
@@ -22,7 +23,7 @@ pub struct Plot3D {
 }
 
 impl Plot3D {
-    pub fn new(gl: WebGlRenderingContext, size: u16) -> Result<Plot3D, JsValue> {
+    pub fn new(gl: WebGlRenderingContext, size: u16, mesh: bool) -> Result<Plot3D, JsValue> {
         let alpha = std::f32::consts::PI * 5.0 / 8.0;
         let beta = std::f32::consts::PI;
         let gamma = std::f32::consts::PI;
@@ -81,7 +82,13 @@ impl Plot3D {
                     (top_left, btm_right, top_left),
                 ]
             })
-            .map(|t| vec![t.0, t.1, t.1, t.2, t.2, t.0])
+            .map(|t| {
+                if mesh {
+                    vec![t.0, t.1, t.1, t.2, t.2, t.0]
+                } else {
+                    vec![t.0, t.1, t.2]
+                }
+            })
             .flatten()
             .collect();
 
@@ -90,6 +97,7 @@ impl Plot3D {
             program,
             vertices,
             indices,
+            mesh,
             fov_y: 45.0,
             front: 0.2,
             back: 128.0,
@@ -164,7 +172,11 @@ impl Plot3D {
         gl.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
 
         gl.draw_elements_with_i32(
-            WebGlRenderingContext::LINES,
+            if self.mesh {
+                WebGlRenderingContext::LINES
+            } else {
+                WebGlRenderingContext::TRIANGLES
+            },
             indices.len() as i32,
             WebGlRenderingContext::UNSIGNED_SHORT,
             0,
