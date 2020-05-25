@@ -1,116 +1,123 @@
 use glam::f32::Vec3;
 use glam::Mat4;
+use log;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::console;
 use web_sys::*;
 use web_sys::{
-    window, HtmlCanvasElement, HtmlElement, WebGlProgram, WebGlRenderingContext, WebGlShader,
-    Window,
+    window, HtmlCanvasElement, HtmlElement, MouseEvent, WebGlProgram, WebGlRenderingContext,
+    WebGlShader, Window,
 };
 
 const WIDTH: u32 = 900;
 const HEIGHT: u32 = 900;
 
-#[wasm_bindgen]
-extern "C" {
-    // Use `js_namespace` here to bind `console.log(..)` instead of just
-    // `log(..)`
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
+mod weblogger;
+use weblogger::WebLogger;
 
-    // The `console.log` is quite polymorphic, so we can bind it with multiple
-    // signatures. Note that we need to use `js_name` to ensure we always call
-    // `log` in JS.
-    #[wasm_bindgen(js_namespace = console, js_name = log)]
-    fn log_u32(a: u32);
+static WEB_LOGGER: WebLogger = WebLogger;
 
-    // Multiple arguments too!
-    #[wasm_bindgen(js_namespace = console, js_name = log)]
-    fn log_many(a: &str, b: &str);
-}
+mod app;
+use app::plot;
+use app::App;
 
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
-    let document = web_sys::window().unwrap().document().unwrap();
-    let canvas = document.get_element_by_id("canvas").unwrap();
+    log::set_logger(&WEB_LOGGER);
+    log::set_max_level(log::LevelFilter::Info);
+    log::info!("Log test hehe");
+
+    let canvas = web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .get_element_by_id("canvas")
+        .unwrap();
+
     let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>()?;
 
     let gl = canvas
         .get_context("webgl")?
         .unwrap()
         .dyn_into::<WebGlRenderingContext>()?;
+    //
+    //    let vert_shader = compile_shader(
+    //        &gl,
+    //        WebGlRenderingContext::VERTEX_SHADER,
+    //        include_str!("shaders/vertex.glsl"),
+    //    )?;
+    //    let frag_shader = compile_shader(
+    //        &gl,
+    //        WebGlRenderingContext::FRAGMENT_SHADER,
+    //        include_str!("shaders/fragment.glsl"),
+    //    )?;
+    //    let program = link_program(&gl, &vert_shader, &frag_shader)?;
+    //    gl.use_program(Some(&program));
+    //
+    //    const size: usize = 120;
+    //    let mut v: [(f32, f32, f32, f32); size * size] = [(0.0, 0.0, 0.0, 0.0); size * size];
+    //    for i in 0..size * size {
+    //        let (x, y) = (i % size, i / size);
+    //        let (x, y) = (x as f32 / (size - 1) as f32, y as f32 / (size - 1) as f32);
+    //        v[i] = (-1.0 + 2.0 * x, 1.0 - 2.0 * y, 0.0, 0.0);
+    //    }
+    //
+    //    //equation
+    //    for i in 0..size * size {
+    //        let (x, y, w) = (v[i].0, v[i].1, v[i].3);
+    //        v[i] = (x, y, std::f32::consts::E.powf(-(x.powi(2) + y.powi(2))), w);
+    //    }
+    //
+    //    let v = v;
+    //
+    //    let mut vertices: [f32; 3 * size * size] = [0.0; 3 * size * size];
+    //    for i in 0..size * size {
+    //        vertices[3 * i + 0] = v[i].0;
+    //        vertices[3 * i + 1] = v[i].1;
+    //        vertices[3 * i + 2] = v[i].2;
+    //    }
+    //
+    //    let vertices = vertices;
+    //
+    //    let mut indices = [0u16; 2 * 2 * size * size];
+    //    {
+    //        let mut k = 0;
+    //        for i in 0..size {
+    //            for j in 0..size {
+    //                let (x, y) = (i, if i % 2 == 0 { j } else { size - j - 1 });
+    //                indices[k] = (x * size + y) as u16;
+    //                indices[k + size] = (x * size + y) as u16;
+    //                //indices[k] = k as u16;
+    //                log::info!("{}", indices[k] as u32);
+    //                k = k + 1;
+    //            }
+    //        }
+    //        for i in 0..size {
+    //            for j in 0..size {
+    //                let (x, y) = (i, if i % 2 == 0 { j } else { size - j - 1 });
+    //                let (x, y) = (size - x - 1, size - y - 1);
+    //                indices[k] = (y * size + x) as u16;
+    //                indices[k + size] = (y * size + x) as u16;
+    //                //indices[k] = k as u16;
+    //                log::info!("{}: {}", k, indices[k]);
+    //                k = k + 1;
+    //            }
+    //        }
+    //    }
+    //
+    //    let indices = indices;
+    //
+    //    let pm = gen_projection_matrix();
+    //    let wm = gen_world_matrix();
+    //
+    //    draw(&gl, &program, &vertices, &indices, &pm, &wm);
 
-    let vert_shader = compile_shader(
-        &gl,
-        WebGlRenderingContext::VERTEX_SHADER,
-        include_str!("shaders/vertex.glsl"),
-    )?;
-    let frag_shader = compile_shader(
-        &gl,
-        WebGlRenderingContext::FRAGMENT_SHADER,
-        include_str!("shaders/fragment.glsl"),
-    )?;
-    let program = link_program(&gl, &vert_shader, &frag_shader)?;
-    gl.use_program(Some(&program));
+    let plot = plot::Plot3D::new(gl, 10)?;
 
-    const size: usize = 120;
-    let mut v: [(f32, f32, f32, f32); size * size] = [(0.0, 0.0, 0.0, 0.0); size * size];
-    for i in 0..size * size {
-        let (x, y) = (i % size, i / size);
-        let (x, y) = (x as f32 / (size - 1) as f32, y as f32 / (size - 1) as f32);
-        v[i] = (-1.0 + 2.0 * x, 1.0 - 2.0 * y, 0.0, 0.0);
-    }
+    let app = App::new(canvas, plot)?;
 
-    //equation
-    for i in 0..size * size {
-        let (x, y, w) = (v[i].0, v[i].1, v[i].3);
-        v[i] = (x, y, std::f32::consts::E.powf(-(x.powi(2) + y.powi(2))), w);
-    }
-
-    let v = v;
-
-    let mut vertices: [f32; 3 * size * size] = [0.0; 3 * size * size];
-    for i in 0..size * size {
-        vertices[3 * i + 0] = v[i].0;
-        vertices[3 * i + 1] = v[i].1;
-        vertices[3 * i + 2] = v[i].2;
-    }
-
-    let vertices = vertices;
-
-    let mut indices = [0u16; 2 * 2 * size * size];
-    {
-        let mut k = 0;
-        for i in 0..size {
-            for j in 0..size {
-                let (x, y) = (i, if i % 2 == 0 { j } else { size - j - 1 });
-                indices[k] = (x * size + y) as u16;
-                indices[k + size] = (x * size + y) as u16;
-                //indices[k] = k as u16;
-                log_u32(indices[k] as u32);
-                k = k + 1;
-            }
-        }
-        for i in 0..size {
-            for j in 0..size {
-                let (x, y) = (i, if i % 2 == 0 { j } else { size - j - 1 });
-                let (x, y) = (size - x - 1, size - y - 1);
-                indices[k] = (y * size + x) as u16;
-                indices[k + size] = (y * size + x) as u16;
-                //indices[k] = k as u16;
-                log(&format!("{}: {}", k, indices[k]));
-                k = k + 1;
-            }
-        }
-    }
-
-    let indices = indices;
-
-    let pm = gen_projection_matrix();
-    let wm = gen_world_matrix();
-
-    draw(&gl, &program, &vertices, &indices, &pm, &wm);
+    app.render()?;
 
     Ok(())
 }
@@ -232,7 +239,7 @@ pub fn resize_canvas() -> Result<(), JsValue> {
     canvas.set_width(width);
     canvas.set_height(height);
 
-    log("resize!");
+    log::info!("resize!");
 
     Ok(())
 }
