@@ -5,17 +5,15 @@ use web_sys::WebGlRenderingContext;
 use web_sys::WebGlShader;
 
 pub struct Plot3D {
-    pub gl: WebGlRenderingContext,
-    program: WebGlProgram,
     vertices: Vec<f32>,
     indices: Vec<u16>,
     mesh: bool,
     fov_y: f32,
     front: f32,
     back: f32,
-    alpha: f32,
+    pub alpha: f32,
     beta: f32,
-    gamma: f32,
+    pub gamma: f32,
     zoom: f32,
     xtrans: f32,
     ytrans: f32,
@@ -23,7 +21,7 @@ pub struct Plot3D {
 }
 
 impl Plot3D {
-    pub fn new(gl: WebGlRenderingContext, size: u16, mesh: bool) -> Result<Plot3D, JsValue> {
+    pub fn new(size: u16, mesh: bool) -> Result<Plot3D, JsValue> {
         let alpha = std::f32::consts::PI * 5.0 / 8.0;
         let beta = std::f32::consts::PI;
         let gamma = std::f32::consts::PI;
@@ -31,17 +29,6 @@ impl Plot3D {
         let xtrans = 0.0f32;
         let ytrans = 0.0f32;
         let ztrans = -3.0f32;
-        let vert_shader = Plot3D::compile_shader(
-            &gl,
-            WebGlRenderingContext::VERTEX_SHADER,
-            include_str!("../shaders/vertex.glsl"),
-        )?;
-        let frag_shader = Plot3D::compile_shader(
-            &gl,
-            WebGlRenderingContext::FRAGMENT_SHADER,
-            include_str!("../shaders/fragment.glsl"),
-        )?;
-        let program = Plot3D::link_program(&gl, &vert_shader, &frag_shader)?;
 
         let vertices: Vec<f32> = (0..size * size)
             .map(|i| {
@@ -49,7 +36,14 @@ impl Plot3D {
                 let (x, y) = (x as f32 / (size - 1) as f32, y as f32 / (size - 1) as f32);
                 (-1.0 + 2.0 * x, 1.0 - 2.0 * y)
             })
-            .flat_map(|(x, y)| vec![x, y, std::f32::consts::E.powf(-(x.powi(2) + y.powi(2)))])
+            .flat_map(|(x, y)| {
+                vec![
+                    x,
+                    y,
+                    ((x.powi(2) + y.powi(2)) * (2.0 * std::f32::consts::PI)).sin()
+                        / (2.0 * std::f32::consts::PI),
+                ]
+            })
             .collect();
         //todo this is hardcoded to e^(1x^2-y^2)
         //need to make it work for any equation
@@ -93,8 +87,6 @@ impl Plot3D {
             .collect();
 
         Ok(Plot3D {
-            gl,
-            program,
             vertices,
             indices,
             mesh,
@@ -111,11 +103,15 @@ impl Plot3D {
         })
     }
 
-    pub fn render(&self, width: u32, height: u32) -> Result<(), JsValue> {
+    pub fn render(
+        &self,
+        gl: &WebGlRenderingContext,
+        program: &WebGlProgram,
+        width: u32,
+        height: u32,
+    ) -> Result<(), JsValue> {
         use log;
         log::info!("render");
-        let gl = &self.gl;
-        let program = &self.program;
         let vertices = &self.vertices;
         let indices = &self.indices;
         let pm = self.gen_projection_matrix(width, height);
