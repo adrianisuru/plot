@@ -25,11 +25,35 @@ pub struct App {
     canvas: HtmlCanvasElement,
 }
 
+trait EventTarget<C>
+where
+    C: Fn(web_sys::MouseEvent),
+{
+    fn add_listener(&self, type_: &str, listener: C) -> Result<(), JsValue>;
+}
+
+impl<C> EventTarget<C> for HtmlCanvasElement
+where
+    C: Fn(web_sys::MouseEvent) + 'static,
+{
+    fn add_listener(&self, type_: &str, listener: C) -> Result<(), JsValue> {
+        let handler = Closure::wrap(Box::new(listener) as Box<FnMut(_)>);
+        use web_sys::EventTarget;
+        self.add_event_listener_with_callback(
+            type_,
+            handler.as_ref().unchecked_ref(),
+        )?;
+        handler.forget();
+        Ok(())
+    }
+}
+
 #[wasm_bindgen]
 impl App {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> App {
+    pub fn new() -> Result<App, JsValue> {
         log::set_logger(&WEB_LOGGER).unwrap();
+        log::set_max_level(log::LevelFilter::Info);
         log::info!("logger active!");
         let document = web_sys::window().unwrap().document().unwrap();
         let canvas = document.get_element_by_id("canvas").unwrap();
@@ -57,7 +81,11 @@ impl App {
         );
         let view = View::new(gl).expect("error creating view");
 
-        App { plot, view, canvas }
+        use web_sys::MouseEvent;
+
+        canvas.add_listener("mousedown", |event: MouseEvent| {})?;
+
+        Ok(App { plot, view, canvas })
     }
 
     pub fn update(&self) -> String {
@@ -137,7 +165,7 @@ impl View {
     ) -> Result<(), JsValue> {
         let gl = &self.gl;
         let program = &self.program;
-        log::info!("render");
+        //log::info!("render");
         let vertices = &model.vertices;
         let indices = &model.indices;
         let normals = &model.normals;
@@ -216,7 +244,6 @@ impl View {
 
         //let pos_loc = gl.get_attrib_location(&program, "position") as u32;
         let pos_loc = 0;
-        log::info!("pos loc: {}", pos_loc);
 
         gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&pos_buff));
         gl.enable_vertex_attrib_array(pos_loc);
@@ -231,7 +258,6 @@ impl View {
 
         //let norm_loc = gl.get_attrib_location(&program, "normal") as u32;
         let norm_loc = 1;
-        log::info!("norm loc: {}", norm_loc);
 
         gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&norm_buff));
         gl.enable_vertex_attrib_array(norm_loc);
@@ -245,7 +271,10 @@ impl View {
         );
 
         gl.clear_color(0.0, 0.0, 1.0, 1.0);
-        gl.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
+        gl.clear(
+            WebGlRenderingContext::COLOR_BUFFER_BIT
+                | WebGlRenderingContext::DEPTH_BUFFER_BIT,
+        );
 
         gl.draw_elements_with_i32(
             WebGlRenderingContext::TRIANGLES,

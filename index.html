@@ -45,7 +45,30 @@
 
         // And afterwards we can use all the functionality defined in wasm.
         let app = new App();
-        app.render();
+
+        var vendors = ['webkit', 'moz'];
+for (var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
+    window.requestAnimationFrame = window[vendors[x] + 'RequestAnimationFrame'];
+    window.cancelAnimationFrame = window[vendors[x] + 'CancelAnimationFrame'] || window[vendors[x] + 'CancelRequestAnimationFrame'];
+}
+        
+        var lastTime = (new Date()).getTime(),
+            currentTime = 0,
+            delta = 0;
+
+        function gameLoop() {
+            window.requestAnimationFrame(gameLoop);
+        
+            currentTime = (new Date()).getTime();
+            delta = (currentTime - lastTime) / 1000;
+
+            app.render();
+            
+            lastTime = currentTime;
+        }
+
+        gameLoop();
+
       }
 
       run();
