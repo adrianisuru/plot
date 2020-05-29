@@ -10,6 +10,11 @@ use web_sys::{
     WebGlRenderingContext, WebGlShader, Window,
 };
 
+mod weblogger;
+use weblogger::WebLogger;
+
+static WEB_LOGGER: WebLogger = WebLogger;
+
 /**
  * The controller
  */
@@ -24,6 +29,8 @@ pub struct App {
 impl App {
     #[wasm_bindgen(constructor)]
     pub fn new() -> App {
+        log::set_logger(&WEB_LOGGER).unwrap();
+        log::info!("logger active!");
         let document = web_sys::window().unwrap().document().unwrap();
         let canvas = document.get_element_by_id("canvas").unwrap();
         let canvas: web_sys::HtmlCanvasElement = canvas
@@ -36,7 +43,18 @@ impl App {
             .unwrap()
             .dyn_into::<WebGlRenderingContext>()
             .expect("error casting to webglrenderingcontext");
-        let plot = Plot::new(Box::new(|x, y| 0.0), Box::new(|x, y| (0.0, 0.0)));
+        const e: f32 = std::f32::consts::E;
+        const c: f32 = 5.0;
+        let plot = Plot::new(
+            Box::new(|x, y| (c * x).sin() * (c * y).cos() / c),
+            Box::new(|x, y| {
+                let expr = -2.0 * e.powf(-(x * x + y * y));
+                (
+                    (c * x).cos() * (c * y).cos(),
+                    -(c * x).sin() * (c * y).sin(),
+                )
+            }),
+        );
         let view = View::new(gl).expect("error creating view");
 
         App { plot, view, canvas }
@@ -49,7 +67,7 @@ impl App {
     pub fn render(&self) {
         let canvas_width = self.canvas.width();
         let canvas_height = self.canvas.height();
-        let model = self.plot.gen_model(20);
+        let model = self.plot.gen_model(25);
 
         self.view
             .render(&model, canvas_width, canvas_height)
@@ -122,24 +140,18 @@ impl View {
         log::info!("render");
         let vertices = &model.vertices;
         let indices = &model.indices;
+        let normals = &model.normals;
         let pm = self
             .frustum
             .gen_projection_matrix(canvas_width, canvas_height);
         let wm = self.world.gen_world_matrix();
-        let buffer = gl.create_buffer().ok_or("failed to create buffer")?;
+        let nm = self.world.gen_normal_matrix();
 
         gl.use_program(Some(program));
 
-        gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&buffer));
+        let pos_buff = gl.create_buffer().ok_or("failed to create buffer")?;
+        gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&pos_buff));
 
-        // Note that `Float32Array::view` is somewhat dangerous (hence the
-        // `unsafe`!). This is creating a raw view into our module's
-        // `WebAssembly.Memory` buffer, but if we allocate more pages for ourself
-        // (aka do a memory allocation in Rust) it'll cause the buffer to change,
-        // causing the `Float32Array` to be invalid.
-        //
-        // As a result, after `Float32Array::view` we have to be very careful not to
-        // do any memory allocations before it's dropped.
         unsafe {
             let vert_array = js_sys::Float32Array::view(&vertices);
 
@@ -150,10 +162,10 @@ impl View {
             );
         }
 
-        let buffer = gl.create_buffer().ok_or("failed to create buffer")?;
+        let idx_buff = gl.create_buffer().ok_or("failed to create buffer")?;
         gl.bind_buffer(
             WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
-            Some(&buffer),
+            Some(&idx_buff),
         );
 
         unsafe {
@@ -162,6 +174,19 @@ impl View {
             gl.buffer_data_with_array_buffer_view(
                 WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
                 &indices_array,
+                WebGlRenderingContext::STATIC_DRAW,
+            );
+        }
+
+        let norm_buff = gl.create_buffer().ok_or("failed to create buffer")?;
+        gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&norm_buff));
+
+        unsafe {
+            let norm_array = js_sys::Float32Array::view(&normals);
+
+            gl.buffer_data_with_array_buffer_view(
+                WebGlRenderingContext::ARRAY_BUFFER,
+                &norm_array,
                 WebGlRenderingContext::STATIC_DRAW,
             );
         }
@@ -182,9 +207,36 @@ impl View {
             wm.as_ref(),
         );
 
-        gl.enable_vertex_attrib_array(0);
+        let nm_loc = gl.get_uniform_location(&program, "nm");
+        gl.uniform_matrix4fv_with_f32_array(
+            nm_loc.as_ref(),
+            false,
+            nm.as_ref(),
+        );
+
+        //let pos_loc = gl.get_attrib_location(&program, "position") as u32;
+        let pos_loc = 0;
+        log::info!("pos loc: {}", pos_loc);
+
+        gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&pos_buff));
+        gl.enable_vertex_attrib_array(pos_loc);
         gl.vertex_attrib_pointer_with_i32(
+            pos_loc,
+            3,
+            WebGlRenderingContext::FLOAT,
+            false,
             0,
+            0,
+        );
+
+        //let norm_loc = gl.get_attrib_location(&program, "normal") as u32;
+        let norm_loc = 1;
+        log::info!("norm loc: {}", norm_loc);
+
+        gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&norm_buff));
+        gl.enable_vertex_attrib_array(norm_loc);
+        gl.vertex_attrib_pointer_with_i32(
+            norm_loc,
             3,
             WebGlRenderingContext::FLOAT,
             false,
@@ -202,23 +254,24 @@ impl View {
             0,
         );
 
-        gl.disable_vertex_attrib_array(0);
+        gl.disable_vertex_attrib_array(norm_loc);
+        gl.disable_vertex_attrib_array(pos_loc);
 
         Ok(())
     }
 
     fn compile_shader(
-        context: &WebGlRenderingContext,
+        gl: &WebGlRenderingContext,
         shader_type: u32,
         source: &str,
     ) -> Result<WebGlShader, String> {
-        let shader = context
+        let shader = gl
             .create_shader(shader_type)
             .ok_or_else(|| String::from("Unable to create shader object"))?;
-        context.shader_source(&shader, source);
-        context.compile_shader(&shader);
+        gl.shader_source(&shader, source);
+        gl.compile_shader(&shader);
 
-        if context
+        if gl
             .get_shader_parameter(
                 &shader,
                 WebGlRenderingContext::COMPILE_STATUS,
@@ -228,36 +281,80 @@ impl View {
         {
             Ok(shader)
         } else {
-            Err(context.get_shader_info_log(&shader).unwrap_or_else(|| {
+            Err(gl.get_shader_info_log(&shader).unwrap_or_else(|| {
                 String::from("Unknown error creating shader")
             }))
         }
     }
 
     fn link_program(
-        context: &WebGlRenderingContext,
+        gl: &WebGlRenderingContext,
         vert_shader: &WebGlShader,
         frag_shader: &WebGlShader,
     ) -> Result<WebGlProgram, String> {
-        let program = context
+        let program = gl
             .create_program()
             .ok_or_else(|| String::from("Unable to create shader object"))?;
 
-        context.attach_shader(&program, vert_shader);
-        context.attach_shader(&program, frag_shader);
-        context.link_program(&program);
+        gl.attach_shader(&program, vert_shader);
+        gl.attach_shader(&program, frag_shader);
+        gl.link_program(&program);
 
-        if context
+        if gl
             .get_program_parameter(&program, WebGlRenderingContext::LINK_STATUS)
             .as_bool()
             .unwrap_or(false)
         {
             Ok(program)
         } else {
-            Err(context.get_program_info_log(&program).unwrap_or_else(|| {
+            Err(gl.get_program_info_log(&program).unwrap_or_else(|| {
                 String::from("Unknown error creating program object")
             }))
         }
+    }
+
+    #[deprecated]
+    fn create_buffer_with_f32(
+        gl: &WebGlRenderingContext,
+        slice: &[f32],
+    ) -> Result<(), JsValue> {
+        let buff = gl.create_buffer().ok_or("failed to create buffer")?;
+        gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&buff));
+
+        unsafe {
+            let array = js_sys::Float32Array::view(&slice);
+
+            gl.buffer_data_with_array_buffer_view(
+                WebGlRenderingContext::ARRAY_BUFFER,
+                &array,
+                WebGlRenderingContext::STATIC_DRAW,
+            );
+        }
+        gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, None);
+        Ok(())
+    }
+
+    #[deprecated]
+    fn create_buffer_with_u16(
+        gl: &WebGlRenderingContext,
+        slice: &[u16],
+    ) -> Result<(), JsValue> {
+        let buff = gl.create_buffer().ok_or("failed to create buffer")?;
+        gl.bind_buffer(
+            WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
+            Some(&buff),
+        );
+
+        unsafe {
+            let array = js_sys::Uint16Array::view(&slice);
+
+            gl.buffer_data_with_array_buffer_view(
+                WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
+                &array,
+                WebGlRenderingContext::STATIC_DRAW,
+            );
+        }
+        Ok(())
     }
 }
 
@@ -296,6 +393,11 @@ impl World {
         let trans = Vec3::new(xtrans, ytrans, ztrans);
 
         Mat4::from_scale_rotation_translation(scale, rot, trans)
+    }
+
+    pub fn gen_normal_matrix(&self) -> Mat4 {
+        let wm = self.gen_world_matrix();
+        wm.inverse().transpose()
     }
 }
 
