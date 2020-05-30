@@ -62,6 +62,8 @@ for (var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
             currentTime = (new Date()).getTime();
             delta = (currentTime - lastTime) / 1000;
 
+            app.update();
+
             app.render();
             
             lastTime = currentTime;

@@ -1,6 +1,8 @@
 #![feature(non_ascii_idents)]
 use glam::Mat4;
 use log;
+use std::cell::Cell;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::console;
@@ -23,6 +25,9 @@ pub struct App {
     plot: Plot,
     view: View,
     canvas: HtmlCanvasElement,
+    mouse_down: Rc<Cell<bool>>,
+    mouse_pos: Rc<Cell<(i32, i32)>>,
+    last_mouse_down_pos: Rc<Cell<(i32, i32)>>,
 }
 
 trait EventTarget<C>
@@ -38,11 +43,13 @@ where
 {
     fn add_listener(&self, type_: &str, listener: C) -> Result<(), JsValue> {
         let handler = Closure::wrap(Box::new(listener) as Box<FnMut(_)>);
-        use web_sys::EventTarget;
-        self.add_event_listener_with_callback(
-            type_,
-            handler.as_ref().unchecked_ref(),
-        )?;
+        {
+            use web_sys::EventTarget;
+            self.add_event_listener_with_callback(
+                type_,
+                handler.as_ref().unchecked_ref(),
+            )?;
+        }
         handler.forget();
         Ok(())
     }
@@ -81,21 +88,80 @@ impl App {
         );
         let view = View::new(gl).expect("error creating view");
 
+        let mouse_down = false;
+        let mouse_down = Rc::new(Cell::new(mouse_down));
+
+        let pos = (0, 0);
+        let mouse_pos = Rc::new(Cell::new(pos));
+        let last_mouse_down_pos = Rc::new(Cell::new(pos));
+
         use web_sys::MouseEvent;
 
-        canvas.add_listener("mousedown", |event: MouseEvent| {})?;
+        {
+            let mouse_down = mouse_down.clone();
+            let last_mouse_down_pos = last_mouse_down_pos.clone();
+            canvas.add_listener("mousedown", move |event: MouseEvent| {
+                let pos = (event.x(), event.y());
+                log::info!("mousedown");
+                mouse_down.set(true);
+                last_mouse_down_pos.set(pos);
+            })?;
+        }
+        {
+            let mouse_down = mouse_down.clone();
+            canvas.add_listener("mouseup", move |event: MouseEvent| {
+                log::info!("mouseup");
+                mouse_down.set(false);
+            })?;
+        }
+        {
+            let mouse_pos = mouse_pos.clone();
+            canvas.add_listener("mousemove", move |event: MouseEvent| {
+                let pos = (event.x(), event.y());
+                log::info!("{:?}", pos);
+                mouse_pos.set(pos);
+            })?;
+        }
 
-        Ok(App { plot, view, canvas })
+        Ok(App {
+            plot,
+            view,
+            canvas,
+            mouse_down,
+            mouse_pos,
+            last_mouse_down_pos,
+        })
     }
 
-    pub fn update(&self) -> String {
-        "boi".to_string()
+    pub fn update(&mut self) {
+        let mouse_down = self.mouse_down.get();
+        let (x, y) = self.mouse_pos.get();
+
+        if mouse_down {
+            let canvas_width = self.canvas.width();
+            let canvas_height = self.canvas.height();
+
+            let (x0, y0) = self.last_mouse_down_pos.get();
+            let dx = (x0 - x) as f32 / canvas_width as f32;
+            let dy = (y0 - y) as f32 / canvas_height as f32;
+
+            let roll = self.view.world.roll;
+            let pitch = self.view.world.pitch;
+            let yaw = self.view.world.yaw;
+
+            self.view.world.pitch = (pitch - dx.atan());
+            self.view.world.roll = (roll - dy.atan());
+
+            self.last_mouse_down_pos.set((x, y));
+        }
     }
+
+    fn update_tilt() {}
 
     pub fn render(&self) {
         let canvas_width = self.canvas.width();
         let canvas_height = self.canvas.height();
-        let model = self.plot.gen_model(25);
+        let model = self.plot.gen_model(30);
 
         self.view
             .render(&model, canvas_width, canvas_height)
@@ -118,9 +184,9 @@ impl View {
         let fov_y = 45.0;
         let front = 0.2;
         let back = 128.0;
-        let α = std::f32::consts::PI * 5.0 / 8.0;
-        let β = std::f32::consts::PI;
-        let γ = std::f32::consts::PI;
+        let roll = std::f32::consts::FRAC_PI_8;
+        let pitch = 0.0;
+        let yaw = 0.0;
         let zoom = 0.8f32;
         let xtrans = 0.0f32;
         let ytrans = 0.0f32;
@@ -128,9 +194,9 @@ impl View {
 
         let frustum = Frustum { fov_y, front, back };
         let world = World {
-            roll: α,
-            pitch: β,
-            yaw: γ,
+            roll,
+            pitch,
+            yaw,
             zoom,
             xtrans,
             ytrans,
@@ -490,7 +556,7 @@ impl Plot {
         let (vertices, normals) = unit_square
             .flat_map(|(x, y)| {
                 let (df_dx, df_dy) = del(x, y);
-                vec![(x, -df_dx), (y, -df_dy), (f(x, y), 1.0)]
+                vec![(x, -df_dx), (f(x, y), 1.0), (y, -df_dy)]
             })
             .unzip();
 
