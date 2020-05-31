@@ -30,22 +30,35 @@ pub struct App {
     last_mouse_down_pos: Rc<Cell<(i32, i32)>>,
 }
 
+/**
+ * More rust friendly version of part of `web_sys::EventTarget`'s api
+ */
 trait EventTarget<C>
 where
     C: Fn(web_sys::MouseEvent),
 {
-    fn add_listener(&self, type_: &str, listener: C) -> Result<(), JsValue>;
+    fn add_event_listener_with_callback(
+        &self,
+        type_: &str,
+        listener: C,
+    ) -> Result<(), JsValue>;
 }
 
 impl<C> EventTarget<C> for HtmlCanvasElement
 where
     C: Fn(web_sys::MouseEvent) + 'static,
 {
-    fn add_listener(&self, type_: &str, listener: C) -> Result<(), JsValue> {
+    fn add_event_listener_with_callback(
+        &self,
+        type_: &str,
+        listener: C,
+    ) -> Result<(), JsValue> {
         let handler = Closure::wrap(Box::new(listener) as Box<FnMut(_)>);
         {
-            use web_sys::EventTarget;
-            self.add_event_listener_with_callback(
+            //need to use web_sys::EventTarget.add_event_listener_with_callback() so we get self as
+            //web_sys::EventTarget first
+            let et: &web_sys::EventTarget = self.as_ref();
+            et.add_event_listener_with_callback(
                 type_,
                 handler.as_ref().unchecked_ref(),
             )?;
@@ -100,27 +113,36 @@ impl App {
         {
             let mouse_down = mouse_down.clone();
             let last_mouse_down_pos = last_mouse_down_pos.clone();
-            canvas.add_listener("mousedown", move |event: MouseEvent| {
-                let pos = (event.x(), event.y());
-                log::info!("mousedown");
-                mouse_down.set(true);
-                last_mouse_down_pos.set(pos);
-            })?;
+            canvas.add_event_listener_with_callback(
+                "mousedown",
+                move |event: MouseEvent| {
+                    let pos = (event.x(), event.y());
+                    log::info!("mousedown");
+                    mouse_down.set(true);
+                    last_mouse_down_pos.set(pos);
+                },
+            )?;
         }
         {
             let mouse_down = mouse_down.clone();
-            canvas.add_listener("mouseup", move |event: MouseEvent| {
-                log::info!("mouseup");
-                mouse_down.set(false);
-            })?;
+            canvas.add_event_listener_with_callback(
+                "mouseup",
+                move |event: MouseEvent| {
+                    log::info!("mouseup");
+                    mouse_down.set(false);
+                },
+            )?;
         }
         {
             let mouse_pos = mouse_pos.clone();
-            canvas.add_listener("mousemove", move |event: MouseEvent| {
-                let pos = (event.x(), event.y());
-                log::info!("{:?}", pos);
-                mouse_pos.set(pos);
-            })?;
+            canvas.add_event_listener_with_callback(
+                "mousemove",
+                move |event: MouseEvent| {
+                    let pos = (event.x(), event.y());
+                    log::info!("{:?}", pos);
+                    mouse_pos.set(pos);
+                },
+            )?;
         }
 
         Ok(App {
