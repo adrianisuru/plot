@@ -5,17 +5,19 @@ use std::cell::Cell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::console;
-use web_sys::*;
 use web_sys::{
-    window, HtmlCanvasElement, HtmlElement, MouseEvent, WebGlProgram,
-    WebGlRenderingContext, WebGlShader, Window,
+    HtmlCanvasElement, WebGlProgram, WebGlRenderingContext, WebGlShader,
 };
 
 mod weblogger;
 use weblogger::WebLogger;
 
 static WEB_LOGGER: WebLogger = WebLogger;
+
+#[wasm_bindgen]
+pub fn cring() -> String {
+    "cringe".to_string()
+}
 
 /**
  * The controller
@@ -32,6 +34,7 @@ pub struct App {
 
 /**
  * More rust friendly version of part of `web_sys::EventTarget`'s api
+ * Here `listener` is a rust closure instead of a `wasm_bindgen::closure::Closure`
  */
 trait EventTarget<C>
 where
@@ -53,7 +56,7 @@ where
         type_: &str,
         listener: C,
     ) -> Result<(), JsValue> {
-        let handler = Closure::wrap(Box::new(listener) as Box<FnMut(_)>);
+        let handler = Closure::wrap(Box::new(listener) as Box<dyn FnMut(_)>);
         {
             //need to use web_sys::EventTarget.add_event_listener_with_callback() so we get self as
             //web_sys::EventTarget first
@@ -75,8 +78,13 @@ impl App {
         log::set_logger(&WEB_LOGGER).unwrap();
         log::set_max_level(log::LevelFilter::Info);
         log::info!("logger active!");
-        let document = web_sys::window().unwrap().document().unwrap();
-        let canvas = document.get_element_by_id("canvas").unwrap();
+        let document = web_sys::window()
+            .expect("cannot find window")
+            .document()
+            .expect("cannot find document");
+        let canvas = document
+            .get_element_by_id("canvas")
+            .expect("cannot find canvas");
         let canvas: web_sys::HtmlCanvasElement = canvas
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("error casting canvas");
@@ -87,18 +95,17 @@ impl App {
             .unwrap()
             .dyn_into::<WebGlRenderingContext>()
             .expect("error casting to webglrenderingcontext");
-        const e: f32 = std::f32::consts::E;
-        const c: f32 = 5.0;
-        let plot = Plot::new(
-            Box::new(|x, y| (c * x).sin() * (c * y).cos() / c),
-            Box::new(|x, y| {
-                let expr = -2.0 * e.powf(-(x * x + y * y));
-                (
-                    (c * x).cos() * (c * y).cos(),
-                    -(c * x).sin() * (c * y).sin(),
-                )
-            }),
-        );
+
+        let c = 5.0;
+        let f = move |x: f32, y: f32| (c * x).sin() * (c * y).cos() / c;
+        let g = move |x: f32, y: f32| {
+            (
+                (c * x).cos() * (c * y).cos(),
+                -(c * x).sin() * (c * y).sin(),
+            )
+        };
+        let plot = Plot::new(f, g);
+
         let view = View::new(gl).expect("error creating view");
 
         let mouse_down = false;
@@ -127,8 +134,18 @@ impl App {
             let mouse_down = mouse_down.clone();
             canvas.add_event_listener_with_callback(
                 "mouseup",
-                move |event: MouseEvent| {
+                move |_: MouseEvent| {
                     log::info!("mouseup");
+                    mouse_down.set(false);
+                },
+            )?;
+        }
+        {
+            let mouse_down = mouse_down.clone();
+            canvas.add_event_listener_with_callback(
+                "mouseleave",
+                move |_: MouseEvent| {
+                    log::info!("mouseleave");
                     mouse_down.set(false);
                 },
             )?;
@@ -156,6 +173,10 @@ impl App {
     }
 
     pub fn update(&mut self) {
+        self.update_tilt();
+    }
+
+    fn update_tilt(&mut self) {
         let mouse_down = self.mouse_down.get();
         let (x, y) = self.mouse_pos.get();
 
@@ -169,16 +190,14 @@ impl App {
 
             let roll = self.view.world.roll;
             let pitch = self.view.world.pitch;
-            let yaw = self.view.world.yaw;
+            //let yaw = self.view.world.yaw;
 
-            self.view.world.pitch = (pitch - dx.atan());
-            self.view.world.roll = (roll - dy.atan());
+            self.view.world.pitch = pitch - dx.atan();
+            self.view.world.roll = roll - dy.atan();
 
             self.last_mouse_down_pos.set((x, y));
         }
     }
-
-    fn update_tilt() {}
 
     pub fn render(&self) {
         let canvas_width = self.canvas.width();
@@ -330,8 +349,8 @@ impl View {
             nm.as_ref(),
         );
 
-        //let pos_loc = gl.get_attrib_location(&program, "position") as u32;
-        let pos_loc = 0;
+        let pos_loc = gl.get_attrib_location(&program, "position") as u32;
+        //let pos_loc = 0;
 
         gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&pos_buff));
         gl.enable_vertex_attrib_array(pos_loc);
@@ -344,8 +363,8 @@ impl View {
             0,
         );
 
-        //let norm_loc = gl.get_attrib_location(&program, "normal") as u32;
-        let norm_loc = 1;
+        let norm_loc = gl.get_attrib_location(&program, "normal") as u32;
+        //let norm_loc = 1;
 
         gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&norm_buff));
         gl.enable_vertex_attrib_array(norm_loc);
@@ -429,50 +448,6 @@ impl View {
             }))
         }
     }
-
-    #[deprecated]
-    fn create_buffer_with_f32(
-        gl: &WebGlRenderingContext,
-        slice: &[f32],
-    ) -> Result<(), JsValue> {
-        let buff = gl.create_buffer().ok_or("failed to create buffer")?;
-        gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&buff));
-
-        unsafe {
-            let array = js_sys::Float32Array::view(&slice);
-
-            gl.buffer_data_with_array_buffer_view(
-                WebGlRenderingContext::ARRAY_BUFFER,
-                &array,
-                WebGlRenderingContext::STATIC_DRAW,
-            );
-        }
-        gl.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, None);
-        Ok(())
-    }
-
-    #[deprecated]
-    fn create_buffer_with_u16(
-        gl: &WebGlRenderingContext,
-        slice: &[u16],
-    ) -> Result<(), JsValue> {
-        let buff = gl.create_buffer().ok_or("failed to create buffer")?;
-        gl.bind_buffer(
-            WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
-            Some(&buff),
-        );
-
-        unsafe {
-            let array = js_sys::Uint16Array::view(&slice);
-
-            gl.buffer_data_with_array_buffer_view(
-                WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
-                &array,
-                WebGlRenderingContext::STATIC_DRAW,
-            );
-        }
-        Ok(())
-    }
 }
 
 struct World {
@@ -553,16 +528,20 @@ struct Model {
  * The model
  */
 struct Plot {
-    equation: Box<Fn(f32, f32) -> f32>,
-    gradient: Box<Fn(f32, f32) -> (f32, f32)>,
+    equation: Box<dyn Fn(f32, f32) -> f32>,
+    gradient: Box<dyn Fn(f32, f32) -> (f32, f32)>,
 }
 
 impl Plot {
-    pub fn new(
-        equation: Box<Fn(f32, f32) -> f32>,
-        gradient: Box<Fn(f32, f32) -> (f32, f32)>,
-    ) -> Plot {
-        Plot { equation, gradient }
+    pub fn new<F, G>(equation: F, gradient: G) -> Plot
+    where
+        F: Fn(f32, f32) -> f32 + 'static,
+        G: Fn(f32, f32) -> (f32, f32) + 'static,
+    {
+        Plot {
+            equation: Box::new(equation),
+            gradient: Box::new(gradient),
+        }
     }
 
     pub fn gen_model(&self, size: u16) -> Model {
@@ -578,7 +557,7 @@ impl Plot {
         let (vertices, normals) = unit_square
             .flat_map(|(x, y)| {
                 let (df_dx, df_dy) = del(x, y);
-                vec![(x, -df_dx), (f(x, y), 1.0), (y, -df_dy)]
+                vec![(x, -df_dx), (f(x, y), 1.0f32), (y, -df_dy)]
             })
             .unzip();
 

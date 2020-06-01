@@ -1,4 +1,4 @@
-use log::{info, Level, Metadata, Record};
+use log::{Level, Metadata, Record};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
